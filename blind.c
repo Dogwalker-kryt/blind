@@ -108,7 +108,7 @@ struct {
 } score = {0};
 
 // https://clagnut.com/blog/2380
-static char* Data[] = {
+static char* Presets[] = {
     "Who packed five dozen old quart jugs in my box?",
     "The quick brown fox jumped over the lazy dogs.",
     "Woven silk pyjamas exchanged for blue quartz.",
@@ -242,19 +242,18 @@ void play(char* s)
             score.lines_skipped += 1;
             total = 0;
             break;
+        }
 
-        } else if (c == 27) { // skip escape keys
+        if (c == 27) { // skip escape keys
             getchar(); getchar(); continue;
+        }
 
-        } else if (c == 127) { // backspace: backtrack
+        if (c == 127) { // backspace: backtrack
             if (idx > 0 && allow_backspace_mode) {
                 --idx;
                 --total;
-                if (history[idx] == s[idx]) {
-                    --correct;
-                } else {
-                    --errors;
-                }
+                if (history[idx] == s[idx]) --correct;
+                else --errors;
                 display(BACK DIM"%c"BACK RST, s[idx]);
             }
             continue;
@@ -265,9 +264,7 @@ void play(char* s)
             display(GREEN"%c"RST, c);
         } else {
             ++errors;
-            if (blocking_mode) {
-                continue;
-            }
+            if (blocking_mode) continue;
             display(RED"%c"RST, show_actual_typed_mode ? c : s[idx]);
         }
 
@@ -300,8 +297,8 @@ void play(char* s)
 void run_presets(void)
 {
     int i = 0;
-    while (Data[i] != 0) {
-        play(Data[i++]);
+    while (Presets[i] != 0) {
+        play(Presets[i++]);
         display("\n");
     }
     print_totals();
@@ -313,13 +310,8 @@ void run_provided_text(int argc, char** argv)
     char text[MAX_TEXT_LINE_LEN] = "";
     while (optind < argc) {
         strcat(text, argv[optind++]);
-
-        // seprate arguments by space
-        if (optind < argc) {
-            strcat(text, " ");
-        }
+        if (optind < argc) strcat(text, " ");
     }
-
     play(text);
 }
 
@@ -356,7 +348,8 @@ void run_file_input(void)
 
 void init(void)
 {
-    if (!term_initialized && !no_display()) {
+    if (term_initialized) return;
+    if (!no_display()) {
         tcgetattr(STDIN_FILENO, &term);
         struct termios raw = term;
         raw.c_lflag &= ~(ICANON | ECHO);
