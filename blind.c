@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 /*
  * Blind - A simple program to practice touch-typing in the terminal.
  *
@@ -44,7 +46,6 @@
 #include <ctype.h>
 #include <errno.h>
 #include <getopt.h>
-#include <getopt.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -54,6 +55,8 @@
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
+
+#define DEFAULT_OUTPUT_FILE "blind_stats.csv"
 
 const char* NAME;
 #define VERSION "0.2.6"
@@ -83,6 +86,11 @@ enum InputMode {
     FILE_INPUT
 };
 
+enum OutputMode {
+    NO_OUTPUT,
+    OUTPUT_REQUESTED
+};
+
 int input_mode = DEFAULT_INPUT;
 int blocking_mode          = 0;
 int allow_backspace_mode   = 0;
@@ -93,6 +101,9 @@ int file_start_line        = 1;
 
 char* input_file_path   = NULL;
 char* input_string_line = NULL;
+
+int output_mode = NO_OUTPUT;
+const char *output_file_path = DEFAULT_OUTPUT_FILE;
 
 int term_initialized = 0;
 struct termios term;
@@ -154,6 +165,7 @@ void help(void)
         "  -b                   block on wrong typing\n"
         "  -f FILE              practice on FILE lines\n"
         "  -l N                 file line number to start on\n"
+        "  -o[FILE]             append session output; attach FILE (default: " DEFAULT_OUTPUT_FILE ")\n"
         "\n"
         "  --help               display help message\n"
         "  --block              block on wrong typing\n"
@@ -163,6 +175,7 @@ void help(void)
         "  --show-actual        show the actual typed letter\n"
         "  --allow-back         allow backspace for correction\n"
         "  --alt-screen         run the program in alt-screen\n"
+        "  --output[=FILE]      append session output; use =FILE (default: " DEFAULT_OUTPUT_FILE ")\n"
         "\n"
         "Arguments:\n"
         "  STRING               one line of text. quoted or unquoted.\n"
@@ -170,6 +183,9 @@ void help(void)
         "\n"
         "Example:\n"
         "  blind -b\n"
+        "  blind -o\n"
+        "  blind -ostats.csv \"line to practice on\"\n"
+        "  blind --output=stats.csv \"line to practice on\"\n"
         "  blind \"line to practice on\"\n"
         "  blind --file <path-to-file> -l 10\n"
         "\n"
@@ -354,6 +370,68 @@ void run_file_input(void)
     print_totals();
 }
 
+void write_summary_to_file(void) {
+    if (output_mode != OUTPUT_REQUESTED) {
+        return;
+    }
+
+    FILE *output_file = fopen(output_file_path, "a+");
+    if (!output_file) {
+        fprintf(stderr, "%s: cannot open output file '%s': %s\n",
+                NAME, output_file_path, strerror(errno));
+        return;
+    }
+
+    if (fseek(output_file, 0, SEEK_END) != 0) {
+        fprintf(stderr, "%s: cannot seek output file '%s': %s\n",
+                NAME, output_file_path, strerror(errno));
+        fclose(output_file);
+        return;
+    }
+
+    long file_size = ftell(output_file);
+    if (file_size < 0) {
+        fprintf(stderr, "%s: cannot get output file size for '%s': %s\n",
+                NAME, output_file_path, strerror(errno));
+        fclose(output_file);
+        return;
+    }
+
+    const char *mode;
+    switch (input_mode) {
+        case STRING_INPUT: mode = "text"; break;
+        case FILE_INPUT:   mode = "file"; break;
+        case DEFAULT_INPUT:
+        default:           mode = "presets"; break;
+    }
+
+    int csv_errors = blocking_mode ? score.typed_errors : -1;
+    double csv_accuracy = blocking_mode ? -1.0 : score.accuracy;
+
+    if (file_size == 0 &&
+        fprintf(output_file, "timestamp,mode,lines,wpm,errors,accuracy,correct_letters,lines_skipped,total_letters\n") < 0) {
+        fprintf(stderr, "%s: cannot write CSV header to '%s': %s\n",
+                NAME, output_file_path, strerror(errno));
+        fclose(output_file);
+        return;
+    }
+
+    if (fprintf(output_file, "%lld,%s,%d,%d,%d,%.2f,%d,%d,%d\n",
+                (long long)time(NULL), mode, score.lines_count, score.wpm,
+                csv_errors, csv_accuracy, score.correct_letters,
+                score.lines_skipped, score.total_letters) < 0) {
+        fprintf(stderr, "%s: cannot write session statistics to '%s': %s\n",
+                NAME, output_file_path, strerror(errno));
+        fclose(output_file);
+        return;
+    }
+
+    if (fclose(output_file) != 0) {
+        fprintf(stderr, "%s: cannot close output file '%s': %s\n",
+                NAME, output_file_path, strerror(errno));
+    }
+}
+
 void init(void)
 {
     if (!term_initialized && !no_display()) {
@@ -400,10 +478,11 @@ void parse_args(int argc, char** argv)
             { "allow-back",  no_argument,       0, OPT_ALLOW_BACKSPACE },
             { "show-actual", no_argument,       0, OPT_SHOW_ACTUAL     },
             { "alt-screen",  no_argument,       0, OPT_ALT_SCREEN      },
+            { "output",      optional_argument, 0, 'o'                 },
             {0}
         };
 
-        c = getopt_long(argc, argv, "hbvf:l:", lo, &option_idx);
+        c = getopt_long(argc, argv, "hbvo::f:l:", lo, &option_idx);
         if (c == -1) break;
 
         switch (c) {
@@ -427,6 +506,17 @@ void parse_args(int argc, char** argv)
                 input_mode = FILE_INPUT;
                 input_file_path = optarg;
                 hide_line_score = 1;
+                break;
+
+            case 'o':
+                output_mode = OUTPUT_REQUESTED;
+                if (optarg) {
+                    if (optarg[0] == '\0') {
+                        fprintf(stderr, "%s: output filename cannot be empty\n", NAME);
+                        exit(1);
+                    }
+                    output_file_path = optarg;
+                }
                 break;
 
             case OPT_ALLOW_BACKSPACE:
@@ -454,6 +544,9 @@ int main(int argc, char** argv)
     signal(SIGINT, handle_siginit);
 
     parse_args(argc, argv);
+    if (output_mode == OUTPUT_REQUESTED) {
+        atexit(write_summary_to_file);
+    }
     init();
 
     // HACK: assuming rest of args are the text input if no input mode provided
