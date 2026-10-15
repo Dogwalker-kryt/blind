@@ -378,13 +378,15 @@ void write_summary_to_file(void) {
     FILE *output_file = fopen(output_file_path, "a+");
     if (!output_file) {
         fprintf(stderr, "%s: cannot open output file '%s': %s\n",
-                NAME, output_file_path, strerror(errno));
+            NAME, output_file_path, strerror(errno)
+        );
         return;
     }
 
     if (fseek(output_file, 0, SEEK_END) != 0) {
         fprintf(stderr, "%s: cannot seek output file '%s': %s\n",
-                NAME, output_file_path, strerror(errno));
+            NAME, output_file_path, strerror(errno)
+        );
         fclose(output_file);
         return;
     }
@@ -392,7 +394,8 @@ void write_summary_to_file(void) {
     long file_size = ftell(output_file);
     if (file_size < 0) {
         fprintf(stderr, "%s: cannot get output file size for '%s': %s\n",
-                NAME, output_file_path, strerror(errno));
+            NAME, output_file_path, strerror(errno)
+        );
         fclose(output_file);
         return;
     }
@@ -411,24 +414,29 @@ void write_summary_to_file(void) {
     if (file_size == 0 &&
         fprintf(output_file, "timestamp,mode,lines,wpm,errors,accuracy,correct_letters,lines_skipped,total_letters\n") < 0) {
         fprintf(stderr, "%s: cannot write CSV header to '%s': %s\n",
-                NAME, output_file_path, strerror(errno));
+            NAME, output_file_path, strerror(errno)
+        );
         fclose(output_file);
         return;
     }
 
-    if (fprintf(output_file, "%lld,%s,%d,%d,%d,%.2f,%d,%d,%d\n",
-                (long long)time(NULL), mode, score.lines_count, score.wpm,
-                csv_errors, csv_accuracy, score.correct_letters,
-                score.lines_skipped, score.total_letters) < 0) {
+    int fprintf_res = fprintf(output_file, "%lld,%s,%d,%d,%d,%.2f,%d,%d,%d\n",
+                (long long)time(NULL), mode, score.lines_count, score.wpm, 
+                csv_errors, csv_accuracy, score.correct_letters, score.lines_skipped, score.total_letters
+    );
+
+    if (fprintf_res < 0) {
         fprintf(stderr, "%s: cannot write session statistics to '%s': %s\n",
-                NAME, output_file_path, strerror(errno));
+            NAME, output_file_path, strerror(errno)
+        );
         fclose(output_file);
         return;
     }
 
     if (fclose(output_file) != 0) {
         fprintf(stderr, "%s: cannot close output file '%s': %s\n",
-                NAME, output_file_path, strerror(errno));
+            NAME, output_file_path, strerror(errno)
+        );
     }
 }
 
@@ -511,11 +519,17 @@ void parse_args(int argc, char** argv)
             case 'o':
                 output_mode = OUTPUT_REQUESTED;
                 if (optarg) {
-                    if (optarg[0] == '\0') {
+                    const char *fname = optarg;
+
+                    if (*fname == '=') {
+                        ++fname;
+                    }
+
+                    if (*fname == '\0') {
                         fprintf(stderr, "%s: output filename cannot be empty\n", NAME);
                         exit(1);
                     }
-                    output_file_path = optarg;
+                    output_file_path = fname;
                 }
                 break;
 
