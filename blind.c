@@ -302,6 +302,7 @@ void play(char* line)
             print_result(wpm, accuracy, errors);
         }
     }
+    free(history);
 }
 
 void run_presets(void)
