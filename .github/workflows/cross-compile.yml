@@ -1,0 +1,20 @@
+name: "cross-compile"
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  cross-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.1
+
+      - run: |
+          make CC="gcc -Werror"
+          make clean
+          make CC="gcc -Werror" cross-compile
