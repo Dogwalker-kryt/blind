@@ -1,9 +1,12 @@
+CC      := gcc
+VERSION := $(shell git describe --abbrev=4 --always --tags)
+CFLAGS  += -DVERSION=\"$(VERSION)\"
 
 SRC := blind.c
 BIN := blind
 
 all:
-	gcc -o $(BIN) $(SRC)
+	$(CC) $(CFLAGS) -o $(BIN) $(SRC)
 
 clean:
 	$(RM) $(BIN)

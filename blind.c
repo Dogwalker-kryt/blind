@@ -44,7 +44,6 @@
 #include <ctype.h>
 #include <errno.h>
 #include <getopt.h>
-#include <getopt.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -56,7 +55,9 @@
 #include <unistd.h>
 
 const char* NAME;
-#define VERSION "0.2.6"
+#ifndef VERSION
+#define VERSION "unknown"
+#endif /* ifndef VERSION */
 #define MAX_TEXT_LINE_LEN 2048
 
 #define no_display() getenv("NDISPLAY")
@@ -125,7 +126,7 @@ static char* Presets[] = {
 
 void version(void)
 {
-    fprintf(stderr, "%s: %s\n", NAME, VERSION);
+    fprintf(stderr, "%s %s\n", NAME, VERSION);
 }
 
 void usage(void)
