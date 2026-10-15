@@ -41,9 +41,9 @@
  */
 #include <assert.h>
 #include <complex.h>
-#include <ctype.h>
 #include <errno.h>
 #include <getopt.h>
+#include <locale.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -53,6 +53,8 @@
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
+#include <wchar.h>
+#include <wctype.h>
 
 const char* NAME;
 #ifndef VERSION
@@ -199,42 +201,49 @@ void print_totals(void)
     if (run_in_alt_screen) display("\033[?1049h"); // back to alt-screen
 }
 
-void play(char* s)
+void play(char* line)
 {
     tcflush(STDIN_FILENO, TCIFLUSH);              // flush the input buffer
     struct winsize w; ioctl(0, TIOCGWINSZ, &w);   // get terminal size
-    if (strlen(s) > w.ws_col) s[w.ws_col] = '\0'; // trim the line
-    display(DIM"\n%s\r"RST, s);                   // print dimmed line
+
+    // convert to wide-character string (UTF-8)
+    wchar_t s[MAX_TEXT_LINE_LEN];
+    if (mbstowcs(s, line, MAX_TEXT_LINE_LEN) == (size_t)-1) { perror("mbstowcs"); return; }
+    s[MAX_TEXT_LINE_LEN - 1] = '\0';
+
+    if (wcslen(s) > w.ws_col) s[w.ws_col] = '\0'; // trim the line
+    display(DIM"\n%ls\r"RST, s);                  // print dimmed line
 
     int idx     = 0;
     int correct = 0;
     int errors  = 0;
     int total   = 0;
     struct timespec start, end;
-    char* history = (char*) malloc(strlen(s));
+    wchar_t* history = (wchar_t*)malloc(wcslen(s) * sizeof(wchar_t));
     assert(history && "Buy more RAM");
 
-    char* c = strchr(s, '\n');
+    wchar_t* c = wcschr(s, '\n');
     if (c) *c = '\0';
 
     // skip spaces and tabs prefix
-    for (; isspace(s[idx]); ++idx) {
+    for (; iswspace(s[idx]); ++idx) {
         display(" ");
     }
 
     while (s[idx] != '\0') {
 
         // line end with space
-        if (isspace(s[idx]) && s[idx + 1] == '\0') {
+        if (iswspace(s[idx]) && s[idx + 1] == '\0') {
             ++idx; break;
         }
 
         // skip long spaces and tabs
-        if (idx > 0 && isspace(s[idx - 1]) && isspace(s[idx])) {
+        if (idx > 0 && iswspace(s[idx - 1]) && iswspace(s[idx])) {
             ++idx; display(" "); continue;
         }
 
-        char c = getchar();
+        wint_t c = getwchar();
+        if (c == WEOF) { free(history); perror("getwchar"); return; }
 
         // start the clock on first type (after getchar)
         if (!total) clock_gettime(CLOCK_MONOTONIC, &start);
@@ -246,7 +255,7 @@ void play(char* s)
         }
 
         if (c == 27) { // skip escape keys
-            getchar(); getchar(); continue;
+            getwchar(); getwchar(); continue;
         }
 
         if (c == 127) { // backspace: backtrack
@@ -255,18 +264,18 @@ void play(char* s)
                 --total;
                 if (history[idx] == s[idx]) --correct;
                 else --errors;
-                display(BACK DIM"%c"BACK RST, s[idx]);
+                display(BACK DIM"%lc"BACK RST, s[idx]);
             }
             continue;
         }
 
         if (c == s[idx]) {
             ++correct;
-            display(GREEN"%c"RST, c);
+            display(GREEN"%lc"RST, c);
         } else {
             ++errors;
             if (blocking_mode) continue;
-            display(RED"%c"RST, show_actual_typed_mode ? c : s[idx]);
+            display(RED"%lc"RST, show_actual_typed_mode ? c : s[idx]);
         }
 
         fflush(stdout);
@@ -293,6 +302,7 @@ void play(char* s)
             print_result(wpm, accuracy, errors);
         }
     }
+    free(history);
 }
 
 void run_presets(void)
@@ -446,6 +456,7 @@ int main(int argc, char** argv)
 {
     atexit(cleanup);
     signal(SIGINT, handle_siginit);
+    if (setlocale(LC_ALL, "") == NULL) { perror("setlocale"); return 1; };
 
     parse_args(argc, argv);
     init();
