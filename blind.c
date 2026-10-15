@@ -43,9 +43,9 @@
  */
 #include <assert.h>
 #include <complex.h>
-#include <ctype.h>
 #include <errno.h>
 #include <getopt.h>
+#include <locale.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -55,11 +55,15 @@
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
+#include <wchar.h>
+#include <wctype.h>
 
 #define DEFAULT_OUTPUT_FILE "blind_stats.csv"
 
 const char* NAME;
-#define VERSION "0.2.6"
+#ifndef VERSION
+#define VERSION "unknown"
+#endif /* ifndef VERSION */
 #define MAX_TEXT_LINE_LEN 2048
 
 #define no_display() getenv("NDISPLAY")
@@ -119,7 +123,7 @@ struct {
 } score = {0};
 
 // https://clagnut.com/blog/2380
-static char* Data[] = {
+static char* Presets[] = {
     "Who packed five dozen old quart jugs in my box?",
     "The quick brown fox jumped over the lazy dogs.",
     "Woven silk pyjamas exchanged for blue quartz.",
@@ -136,7 +140,7 @@ static char* Data[] = {
 
 void version(void)
 {
-    fprintf(stderr, "%s: %s\n", NAME, VERSION);
+    fprintf(stderr, "%s %s\n", NAME, VERSION);
 }
 
 void usage(void)
@@ -214,42 +218,49 @@ void print_totals(void)
     if (run_in_alt_screen) display("\033[?1049h"); // back to alt-screen
 }
 
-void play(char* s)
+void play(char* line)
 {
     tcflush(STDIN_FILENO, TCIFLUSH);              // flush the input buffer
     struct winsize w; ioctl(0, TIOCGWINSZ, &w);   // get terminal size
-    if (strlen(s) > w.ws_col) s[w.ws_col] = '\0'; // trim the line
-    display(DIM"\n%s\r"RST, s);                   // print dimmed line
+
+    // convert to wide-character string (UTF-8)
+    wchar_t s[MAX_TEXT_LINE_LEN];
+    if (mbstowcs(s, line, MAX_TEXT_LINE_LEN) == (size_t)-1) { perror("mbstowcs"); return; }
+    s[MAX_TEXT_LINE_LEN - 1] = '\0';
+
+    if (wcslen(s) > w.ws_col) s[w.ws_col] = '\0'; // trim the line
+    display(DIM"\n%ls\r"RST, s);                  // print dimmed line
 
     int idx     = 0;
     int correct = 0;
     int errors  = 0;
     int total   = 0;
     struct timespec start, end;
-    char* history = (char*) malloc(strlen(s));
+    wchar_t* history = (wchar_t*)malloc(wcslen(s) * sizeof(wchar_t));
     assert(history && "Buy more RAM");
 
-    char* c = strchr(s, '\n');
+    wchar_t* c = wcschr(s, '\n');
     if (c) *c = '\0';
 
     // skip spaces and tabs prefix
-    for (; isspace(s[idx]); ++idx) {
+    for (; iswspace(s[idx]); ++idx) {
         display(" ");
     }
 
     while (s[idx] != '\0') {
 
         // line end with space
-        if (isspace(s[idx]) && s[idx + 1] == '\0') {
+        if (iswspace(s[idx]) && s[idx + 1] == '\0') {
             ++idx; break;
         }
 
         // skip long spaces and tabs
-        if (idx > 0 && isspace(s[idx - 1]) && isspace(s[idx])) {
+        if (idx > 0 && iswspace(s[idx - 1]) && iswspace(s[idx])) {
             ++idx; display(" "); continue;
         }
 
-        char c = getchar();
+        wint_t c = getwchar();
+        if (c == WEOF) { free(history); perror("getwchar"); return; }
 
         // start the clock on first type (after getchar)
         if (!total) clock_gettime(CLOCK_MONOTONIC, &start);
@@ -258,33 +269,30 @@ void play(char* s)
             score.lines_skipped += 1;
             total = 0;
             break;
+        }
 
-        } else if (c == 27) { // skip escape keys
-            getchar(); getchar(); continue;
+        if (c == 27) { // skip escape keys
+            getwchar(); getwchar(); continue;
+        }
 
-        } else if (c == 127) { // backspace: backtrack
+        if (c == 127) { // backspace: backtrack
             if (idx > 0 && allow_backspace_mode) {
                 --idx;
                 --total;
-                if (history[idx] == s[idx]) {
-                    --correct;
-                } else {
-                    --errors;
-                }
-                display(BACK DIM"%c"BACK RST, s[idx]);
+                if (history[idx] == s[idx]) --correct;
+                else --errors;
+                display(BACK DIM"%lc"BACK RST, s[idx]);
             }
             continue;
         }
 
         if (c == s[idx]) {
             ++correct;
-            display(GREEN"%c"RST, c);
+            display(GREEN"%lc"RST, c);
         } else {
             ++errors;
-            if (blocking_mode) {
-                continue;
-            }
-            display(RED"%c"RST, show_actual_typed_mode ? c : s[idx]);
+            if (blocking_mode) continue;
+            display(RED"%lc"RST, show_actual_typed_mode ? c : s[idx]);
         }
 
         fflush(stdout);
@@ -311,13 +319,14 @@ void play(char* s)
             print_result(wpm, accuracy, errors);
         }
     }
+    free(history);
 }
 
 void run_presets(void)
 {
     int i = 0;
-    while (Data[i] != 0) {
-        play(Data[i++]);
+    while (Presets[i] != 0) {
+        play(Presets[i++]);
         display("\n");
     }
     print_totals();
@@ -329,13 +338,8 @@ void run_provided_text(int argc, char** argv)
     char text[MAX_TEXT_LINE_LEN] = "";
     while (optind < argc) {
         strcat(text, argv[optind++]);
-
-        // seprate arguments by space
-        if (optind < argc) {
-            strcat(text, " ");
-        }
+        if (optind < argc) strcat(text, " ");
     }
-
     play(text);
 }
 
@@ -442,7 +446,8 @@ void write_summary_to_file(void) {
 
 void init(void)
 {
-    if (!term_initialized && !no_display()) {
+    if (term_initialized) return;
+    if (!no_display()) {
         tcgetattr(STDIN_FILENO, &term);
         struct termios raw = term;
         raw.c_lflag &= ~(ICANON | ECHO);
@@ -556,6 +561,7 @@ int main(int argc, char** argv)
 {
     atexit(cleanup);
     signal(SIGINT, handle_siginit);
+    if (setlocale(LC_ALL, "") == NULL) { perror("setlocale"); return 1; };
 
     parse_args(argc, argv);
     if (output_mode == OUTPUT_REQUESTED) {
