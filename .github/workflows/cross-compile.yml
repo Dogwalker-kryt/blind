@@ -15,6 +15,6 @@ jobs:
           version: 0.15.1
 
       - run: |
-          make CC="gcc -Werror"
+          CFLAGS="-Werror" make
           make clean
-          make CC="gcc -Werror" cross-compile
+          CFLAGS="-Werror" make cross-compile
