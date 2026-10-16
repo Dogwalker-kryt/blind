@@ -374,7 +374,7 @@ void run_file_input(void)
 
 int ensure_dir_exists(const char *path) {
     char temp[PATH_MAX];
-    char *p = NULL;
+    char* p = NULL;
 
     if (strlen(path) >= PATH_MAX) {
         return -1;
@@ -408,7 +408,7 @@ FILE* open_for_append(const char* full_path) {
     char path_copy[PATH_MAX];
     strncpy(path_copy, full_path, PATH_MAX);
 
-    char *last_slash = strrchr(path_copy, '/');
+    char* last_slash = strrchr(path_copy, '/');
     if (last_slash != NULL) {
         *last_slash = '\0'; 
 
@@ -451,19 +451,19 @@ void write_summary_to_file(void) {
         return;
     }
 
-    const char *mode;
+    const char* mode;
     switch (input_mode) {
         case STRING_INPUT: mode = "text"; break;
         case FILE_INPUT:   mode = "file"; break;
-        case DEFAULT_INPUT: mode = "unknown"; break;
-        default:           mode = "presets"; break;
+        case DEFAULT_INPUT: mode = "presets"; break;
+        default:           mode = "unknown"; break;
     }
 
     int csv_errors = blocking_mode ? score.typed_errors : -1;
     double csv_accuracy = blocking_mode ? -1.0 : score.accuracy;
 
     if (file_size == 0 &&
-        fprintf(output_file, "timestamp,mode,lines,wpm,errors,accuracy,correct_letters,lines_skipped,total_letters\n") < 0) {
+        fprintf(output_file, "timestamp,mode,lines,lines_skipped,total_letters,wpm,errors,accuracy,correct_letters\n") < 0) {
         fprintf(stderr, "%s: cannot write CSV header to '%s': %s\n",
             NAME, output_file_path, strerror(errno)
         );
@@ -471,9 +471,10 @@ void write_summary_to_file(void) {
         return;
     }
 
-    int fprintf_res = fprintf(output_file, "%lld,%s,%d,%d,%d,%.2f,%d,%d,%d\n",
-                (long long)time(NULL), mode, score.lines_count, score.wpm, 
-                csv_errors, csv_accuracy, score.correct_letters, score.lines_skipped, score.total_letters
+    int fprintf_res = fprintf(output_file, "%lld,%s,%d,%d,%d,%d,%d,%.2f,%d\n",
+                (long long)time(NULL), mode, score.lines_count,
+                score.lines_skipped, score.total_letters, score.wpm,
+                csv_errors, csv_accuracy, score.correct_letters
     );
 
     if (fprintf_res < 0) {
