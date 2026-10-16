@@ -55,8 +55,8 @@
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
-
-#define DEFAULT_OUTPUT_FILE "blind_stats.csv"
+#include <limits.h>
+#include <sys/stat.h>
 
 const char* NAME;
 #define VERSION "0.2.6"
@@ -87,8 +87,8 @@ enum InputMode {
 };
 
 enum OutputMode {
-    NO_OUTPUT,
-    OUTPUT_REQUESTED
+    DEFAULT_OUTPT,
+    CUSTOM_PATH_OUTPUT
 };
 
 int input_mode = DEFAULT_INPUT;
@@ -102,8 +102,9 @@ int file_start_line        = 1;
 char* input_file_path   = NULL;
 char* input_string_line = NULL;
 
-int output_mode = NO_OUTPUT;
-const char *output_file_path = DEFAULT_OUTPUT_FILE;
+#define DEFAULT_OUTPUT_PATH "/.local/share/blind-tt/blind_stats.csv"
+int output_mode = DEFAULT_OUTPT;
+char* output_file_path = NULL;
 
 int term_initialized = 0;
 struct termios term;
@@ -165,17 +166,18 @@ void help(void)
         "  -b                   block on wrong typing\n"
         "  -f FILE              practice on FILE lines\n"
         "  -l N                 file line number to start on\n"
-        "  -o[FILE]             append session output; attach FILE (default: " DEFAULT_OUTPUT_FILE ")\n"
+        "  -o[FILE]             specifiy FILE to store stats (default: $HOME" DEFAULT_OUTPUT_PATH ")\n"
         "\n"
         "  --help               display help message\n"
-        "  --block              block on wrong typing\n"
+        "  --block              block on wrong typing\n"    
         "  --version            show version number\n"
         "  --file=FILE          practice on FILE lines\n"
         "  --start-line=N       file line number to start on\n"
         "  --show-actual        show the actual typed letter\n"
         "  --allow-back         allow backspace for correction\n"
         "  --alt-screen         run the program in alt-screen\n"
-        "  --output[=FILE]      append session output; use =FILE (default: " DEFAULT_OUTPUT_FILE ")\n"
+        "  --output[=FILE]      specifiy FILE to store stats (default: $HOME" DEFAULT_OUTPUT_PATH  ")\n"
+        "                       Path format is /path/fil_name.csv\n"
         "\n"
         "Arguments:\n"
         "  STRING               one line of text. quoted or unquoted.\n"
@@ -370,26 +372,75 @@ void run_file_input(void)
     print_totals();
 }
 
+int ensure_dir_exists(const char *path) {
+    char temp[PATH_MAX];
+    char *p = NULL;
+
+    if (strlen(path) >= PATH_MAX) {
+        return -1;
+    }
+
+    strncpy(temp, path, PATH_MAX);
+    
+    for (p = temp + 1; *p; p++) {
+        if (*p == '/') {
+            *p = '\0';
+            // 0755: owner rwx, group rx, others rx
+            if (mkdir(temp, 0755) != 0 && errno != EEXIST) {
+                return -1;
+            }
+            *p = '/';
+        }
+    }
+
+    if (mkdir(temp, 0755) != 0 && errno != EEXIST) {
+        return -1;
+    }
+
+    return 0;
+}
+
+FILE* open_for_append(const char* full_path) {
+    if (full_path == NULL || strlen(full_path) >= PATH_MAX) {
+        return NULL;
+    }
+
+    char path_copy[PATH_MAX];
+    strncpy(path_copy, full_path, PATH_MAX);
+
+    char *last_slash = strrchr(path_copy, '/');
+    if (last_slash != NULL) {
+        *last_slash = '\0'; 
+
+        if (ensure_dir_exists(path_copy) != 0) {
+            perror("HR Error: Failed to create directory tree");
+            return NULL;
+        }
+    }
+
+    return fopen(full_path, "a");
+}
+
+
+void gen_output_file_path(char* custom_output_path) {
+    char* home_usr = getenv("HOME");
+    static char buff[256];
+
+    strncpy(buff, home_usr, sizeof(buff));
+    buff[sizeof(buff) - 1] = '\0';
+
+    char* temp_file_path = DEFAULT_OUTPUT_PATH;
+    if (output_mode == CUSTOM_PATH_OUTPUT) temp_file_path = custom_output_path;
+
+    strcat(buff, temp_file_path);
+
+    output_file_path = buff;
+}
+
 void write_summary_to_file(void) {
-    if (output_mode != OUTPUT_REQUESTED) {
-        return;
-    }
+    gen_output_file_path(output_file_path);
 
-    FILE *output_file = fopen(output_file_path, "a+");
-    if (!output_file) {
-        fprintf(stderr, "%s: cannot open output file '%s': %s\n",
-            NAME, output_file_path, strerror(errno)
-        );
-        return;
-    }
-
-    if (fseek(output_file, 0, SEEK_END) != 0) {
-        fprintf(stderr, "%s: cannot seek output file '%s': %s\n",
-            NAME, output_file_path, strerror(errno)
-        );
-        fclose(output_file);
-        return;
-    }
+    FILE* output_file = open_for_append(output_file_path);
 
     long file_size = ftell(output_file);
     if (file_size < 0) {
@@ -404,7 +455,7 @@ void write_summary_to_file(void) {
     switch (input_mode) {
         case STRING_INPUT: mode = "text"; break;
         case FILE_INPUT:   mode = "file"; break;
-        case DEFAULT_INPUT:
+        case DEFAULT_INPUT: mode = "unknown"; break;
         default:           mode = "presets"; break;
     }
 
@@ -517,9 +568,9 @@ void parse_args(int argc, char** argv)
                 break;
 
             case 'o':
-                output_mode = OUTPUT_REQUESTED;
+                output_mode = CUSTOM_PATH_OUTPUT;
                 if (optarg) {
-                    const char *fname = optarg;
+                    char *fname = optarg;
 
                     if (*fname == '=') {
                         ++fname;
@@ -555,12 +606,11 @@ void parse_args(int argc, char** argv)
 int main(int argc, char** argv)
 {
     atexit(cleanup);
+    atexit(write_summary_to_file);
+
     signal(SIGINT, handle_siginit);
 
     parse_args(argc, argv);
-    if (output_mode == OUTPUT_REQUESTED) {
-        atexit(write_summary_to_file);
-    }
     init();
 
     // HACK: assuming rest of args are the text input if no input mode provided

@@ -33,13 +33,13 @@ Options:
   -b                   block on wrong typing
   -f FILE              practice on FILE lines
   -l NUMBER            file line number to start on
-  -o=FILE              append session stats to FILE (if no FILE is given then it defaults to 'blind_stats.csv')
+  -o=FILE              specifiy FILE to store stats ( defaults to: $HOME/.local/share/blind-tt/blind_stats.csv)
  
   --help               display help message
   --block              block on wrong typing
   --version            show version number
   --file=FILE          practice on FILE lines
-  --output=FILE        append session stats to FILE (if no FILE is given then it defaults to 'blind_stats.csv')
+  --output=FILE        specifiy FILE to store stats ( defaults to: $HOME/.local/share/blind-tt/blind_stats.csv)
   --start-line=N       file line number to start on
   --show-actual        show the actual typed letter
   --allow-back         allow backspace for correction
