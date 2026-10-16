@@ -424,7 +424,12 @@ FILE* open_for_append(const char* full_path) {
 
 void gen_output_file_path(char* custom_output_path) {
     char* home_usr = getenv("HOME");
-    static char buff[256];
+    if (home_usr == NULL) {
+        fprintf(stderr, "%s: cannot get HOME environment variable for output file path\n", NAME);
+        exit(1);
+    }
+
+    static char buff[PATH_MAX];
 
     strncpy(buff, home_usr, sizeof(buff));
     buff[sizeof(buff) - 1] = '\0';
