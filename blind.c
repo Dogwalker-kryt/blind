@@ -386,16 +386,27 @@ void run_file_input(void)
     print_totals();
 }
 
-int ensure_dir_exists(const char *path) {
-    char dir_path[PATH_MAX];
-    strncpy(dir_path, path, PATH_MAX);
-    char* last_slash = strrchr(dir_path, '/');
-    if (last_slash != NULL) *last_slash = '\0';
-    if (strlen(dir_path) >= PATH_MAX) return -1;
+int ensure_dir_exists(const char* path) {
+    if (path == NULL || strlen(path) >= PATH_MAX) return -1;
 
-    if (mkdir(dir_path, 0755) != 0 && errno != EEXIST) {
-        return -1;
+    char dir_path[PATH_MAX];
+    strncpy(dir_path, path, sizeof(dir_path) - 1);
+    dir_path[sizeof(dir_path) - 1] = '\0';
+
+    char* last_slash = strrchr(dir_path, '/');
+    if (last_slash == NULL) return 0;
+    if (last_slash == dir_path) return 0;
+
+    *last_slash = '\0';
+    for (char* p = dir_path + 1; *p != '\0'; ++p) {
+        if (*p == '/') {
+            *p = '\0';
+            if (mkdir(dir_path, 0755) != 0 && errno != EEXIST) return -1;
+            *p = '/';
+        }
     }
+
+    if (mkdir(dir_path, 0755) != 0 && errno != EEXIST) return -1;
     return 0;
 }
 
