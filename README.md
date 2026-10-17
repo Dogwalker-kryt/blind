@@ -33,11 +33,13 @@ Options:
   -b                   block on wrong typing
   -f FILE              practice on FILE lines
   -l NUMBER            file line number to start on
+  -o=FILE              specifiy FILE to store stats
  
   --help               display help message
   --block              block on wrong typing
   --version            show version number
   --file=FILE          practice on FILE lines
+  --output=FILE        specifiy FILE to store stats
   --start-line=N       file line number to start on
   --show-actual        show the actual typed letter
   --allow-back         allow backspace for correction
@@ -46,6 +48,8 @@ Options:
 Arguments:
   STRING               one line of text. quoted or unquoted.
   FILE                 any file containing text
+
+Default stats file: $HOME/.local/share/blind-tt/blind_stats.csv
 
 Example:
   blind -b

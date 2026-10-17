@@ -16,6 +16,7 @@
  *   -b                   block on wrong typing
  *   -f FILE              practice on FILE lines
  *   -l N                 file line number to start on
+ *   -o FILE              specifiy FILE to store stats
  *
  *   --help               display help message
  *   --block              block on wrong typing
@@ -25,6 +26,7 @@
  *   --show-actual        show the actual typed letter
  *   --allow-back         allow backspace for correction
  *   --alt-screen         run the program in alt-screen
+ *   --output=FILE        specifiy FILE to store stats
  *
  * Arguments:
  *   STRING               one line of text. quoted or unquoted.
@@ -39,10 +41,12 @@
  * author: shalom2552
  * date: 2026-09-24
  */
+#define _POSIX_C_SOURCE 200809L
 #include <assert.h>
 #include <complex.h>
 #include <errno.h>
 #include <getopt.h>
+#include <limits.h>
 #include <locale.h>
 #include <signal.h>
 #include <stddef.h>
@@ -50,6 +54,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -59,9 +64,12 @@
 const char* NAME;
 #ifndef VERSION
 #define VERSION "unknown"
-#endif /* ifndef VERSION */
-#define MAX_TEXT_LINE_LEN 2048
+#endif // VERSION
 
+#define MAX_TEXT_LINE_LEN 2048
+#define DEFAULT_OUTPUT_PATH "/.local/share/blind-tt/blind_stats.csv"
+
+#define home()       getenv("HOME")
 #define no_display() getenv("NDISPLAY")
 #define display(...) do { if (!no_display()) printf(""__VA_ARGS__); fflush(stdout); } while (0)
 #define DEBUG(...)   fprintf(stderr, "DEBUG: "__VA_ARGS__)
@@ -96,6 +104,7 @@ int file_start_line        = 1;
 
 char* input_file_path   = NULL;
 char* input_string_line = NULL;
+char* output_file_path = NULL;
 
 int term_initialized = 0;
 struct termios term;
@@ -157,6 +166,7 @@ void help(void)
         "  -b                   block on wrong typing\n"
         "  -f FILE              practice on FILE lines\n"
         "  -l N                 file line number to start on\n"
+        "  -o FILE              specifiy FILE to store stats\n"
         "\n"
         "  --help               display help message\n"
         "  --block              block on wrong typing\n"
@@ -166,6 +176,7 @@ void help(void)
         "  --show-actual        show the actual typed letter\n"
         "  --allow-back         allow backspace for correction\n"
         "  --alt-screen         run the program in alt-screen\n"
+        "  --output=FILE        specifiy FILE to store stats\n"
         "\n"
         "Arguments:\n"
         "  STRING               one line of text. quoted or unquoted.\n"
@@ -173,8 +184,11 @@ void help(void)
         "\n"
         "Example:\n"
         "  blind -b\n"
+        "  blind --output=stats.csv \"line to practice on\"\n"
         "  blind \"line to practice on\"\n"
         "  blind --file <path-to-file> -l 10\n"
+        "\n"
+        "Default stats file: $HOME" DEFAULT_OUTPUT_PATH "\n"
         "\n"
         "Bugs can be reported on GitHub:\n"
         "https://github.com/shalom2552/blind.git\n"
@@ -206,12 +220,15 @@ void play(char* line)
     tcflush(STDIN_FILENO, TCIFLUSH);              // flush the input buffer
     struct winsize w; ioctl(0, TIOCGWINSZ, &w);   // get terminal size
 
-    // convert to wide-character string (UTF-8)
+    // Convert UTF-8 input to wide characters for character-based typing.
     wchar_t s[MAX_TEXT_LINE_LEN];
-    if (mbstowcs(s, line, MAX_TEXT_LINE_LEN) == (size_t)-1) { perror("mbstowcs"); return; }
-    s[MAX_TEXT_LINE_LEN - 1] = '\0';
+    if (mbstowcs(s, line, MAX_TEXT_LINE_LEN) == (size_t)-1) {
+        perror("mbstowcs");
+        return;
+    }
+    s[MAX_TEXT_LINE_LEN - 1] = L'\0';
 
-    if (wcslen(s) > w.ws_col) s[w.ws_col] = '\0'; // trim the line
+    if (wcslen(s) > w.ws_col) s[w.ws_col] = L'\0'; // trim the line
     display(DIM"\n%ls\r"RST, s);                  // print dimmed line
 
     int idx     = 0;
@@ -222,8 +239,8 @@ void play(char* line)
     wchar_t* history = (wchar_t*)malloc(wcslen(s) * sizeof(wchar_t));
     assert(history && "Buy more RAM");
 
-    wchar_t* c = wcschr(s, '\n');
-    if (c) *c = '\0';
+    wchar_t* line_end = wcschr(s, L'\n');
+    if (line_end) *line_end = L'\0';
 
     // skip spaces and tabs prefix
     for (; iswspace(s[idx]); ++idx) {
@@ -233,7 +250,7 @@ void play(char* line)
     while (s[idx] != '\0') {
 
         // line end with space
-        if (iswspace(s[idx]) && s[idx + 1] == '\0') {
+        if (iswspace(s[idx]) && s[idx + 1] == L'\0') {
             ++idx; break;
         }
 
@@ -243,27 +260,32 @@ void play(char* line)
         }
 
         wint_t c = getwchar();
-        if (c == WEOF) { free(history); perror("getwchar"); return; }
+        if (c == WEOF) {
+            free(history);
+            perror("getwchar");
+            return;
+        }
 
         // start the clock on first type (after getchar)
         if (!total) clock_gettime(CLOCK_MONOTONIC, &start);
 
-        if (c == '\n') { // skip line on enter
+        if (c == L'\n') { // skip line on enter
             score.lines_skipped += 1;
             total = 0;
             break;
-        }
 
-        if (c == 27) { // skip escape keys
+        } else if (c == 27) { // skip escape keys
             getwchar(); getwchar(); continue;
-        }
 
-        if (c == 127) { // backspace: backtrack
+        } else if (c == 127) { // backspace: backtrack
             if (idx > 0 && allow_backspace_mode) {
                 --idx;
                 --total;
-                if (history[idx] == s[idx]) --correct;
-                else --errors;
+                if (history[idx] == s[idx]) {
+                    --correct;
+                } else {
+                    --errors;
+                }
                 display(BACK DIM"%lc"BACK RST, s[idx]);
             }
             continue;
@@ -274,7 +296,9 @@ void play(char* line)
             display(GREEN"%lc"RST, c);
         } else {
             ++errors;
-            if (blocking_mode) continue;
+            if (blocking_mode) {
+                continue;
+            }
             display(RED"%lc"RST, show_actual_typed_mode ? c : s[idx]);
         }
 
@@ -321,8 +345,13 @@ void run_provided_text(int argc, char** argv)
     char text[MAX_TEXT_LINE_LEN] = "";
     while (optind < argc) {
         strcat(text, argv[optind++]);
-        if (optind < argc) strcat(text, " ");
+
+        // seprate arguments by space
+        if (optind < argc) {
+            strcat(text, " ");
+        }
     }
+
     play(text);
 }
 
@@ -355,6 +384,98 @@ void run_file_input(void)
     free(line);
     fclose(finput);
     print_totals();
+}
+
+int ensure_dir_exists(const char* path)
+{
+    if (path == NULL || strlen(path) >= PATH_MAX) return -1;
+
+    char dir_path[PATH_MAX];
+    strncpy(dir_path, path, sizeof(dir_path) - 1);
+    dir_path[sizeof(dir_path) - 1] = '\0';
+
+    char* last_slash = strrchr(dir_path, '/');
+    if (last_slash == NULL) return 0;
+    if (last_slash == dir_path) return 0;
+    *last_slash = '\0';
+
+    for (char* p = dir_path + 1; *p != '\0'; ++p) {
+        if (*p == '/') {
+            *p = '\0';
+            if (mkdir(dir_path, 0755) != 0 && errno != EEXIST) return -1;
+            *p = '/';
+        }
+    }
+
+    if (mkdir(dir_path, 0755) != 0 && errno != EEXIST) return -1;
+    return 0;
+}
+
+void write_summary_to_file(void)
+{
+    char* home_usr = home();
+    if (home_usr == NULL) {
+        fprintf(stderr, "%s: cannot get HOME environment variable for output file path\n", NAME);
+        return;
+    }
+    if (!output_file_path) {
+        output_file_path = home();
+        strcat(output_file_path, DEFAULT_OUTPUT_PATH);
+    }
+    if (ensure_dir_exists(output_file_path) != 0) {
+        perror("mkdir");
+        return;
+    }
+
+    FILE* output_file = fopen(output_file_path, "a");
+    if (!output_file) {
+        perror("fopen");
+        return;
+    }
+
+    long file_size = ftell(output_file);
+    if (file_size < 0) {
+        fprintf(stderr, "%s: cannot get output file size for '%s': %s\n",
+            NAME, output_file_path, strerror(errno));
+        fclose(output_file);
+        return;
+    }
+
+    if (file_size == 0 &&
+        fprintf(output_file, "timestamp,mode,lines,lines_skipped,total_letters,correct_letters,errors,wpm,accuracy\n") < 0) {
+        fprintf(stderr, "%s: cannot write CSV header to '%s': %s\n",
+                NAME, output_file_path, strerror(errno));
+        fclose(output_file);
+        return;
+    }
+
+    const char* mode;
+    switch (input_mode) {
+        case STRING_INPUT:  mode = "text";    break;
+        case FILE_INPUT:    mode = "file";    break;
+        case DEFAULT_INPUT: mode = "presets"; break;
+        default:            mode = "unknown"; break;
+    }
+
+    int fprintf_res = fprintf(output_file, "%lld,%s,%d,%d,%d,%d,%d,%d,%.2f\n",
+                (long long)time(NULL), mode, score.lines_count,
+                score.lines_skipped, score.total_letters, score.correct_letters,
+                score.typed_errors, score.wpm, score.accuracy
+    );
+
+    if (fprintf_res < 0) {
+        fprintf(stderr, "%s: cannot write session statistics to '%s': %s\n",
+            NAME, output_file_path, strerror(errno)
+        );
+        fclose(output_file);
+        return;
+    }
+
+    if (fclose(output_file) != 0) {
+        fprintf(stderr, "%s: cannot close output file '%s': %s\n",
+            NAME, output_file_path, strerror(errno)
+        );
+    }
 }
 
 void init(void)
@@ -404,10 +525,11 @@ void parse_args(int argc, char** argv)
             { "allow-back",  no_argument,       0, OPT_ALLOW_BACKSPACE },
             { "show-actual", no_argument,       0, OPT_SHOW_ACTUAL     },
             { "alt-screen",  no_argument,       0, OPT_ALT_SCREEN      },
-            {0}
+            { "output",      optional_argument, 0, 'o'                 },
+            {0},
         };
 
-        c = getopt_long(argc, argv, "hbvf:l:", lo, &option_idx);
+        c = getopt_long(argc, argv, "hbvo:f:l:", lo, &option_idx);
         if (c == -1) break;
 
         switch (c) {
@@ -433,6 +555,10 @@ void parse_args(int argc, char** argv)
                 hide_line_score = 1;
                 break;
 
+            case 'o':
+                output_file_path = optarg;
+                break;
+
             case OPT_ALLOW_BACKSPACE:
                 allow_backspace_mode = 1;
                 break;
@@ -455,8 +581,13 @@ void parse_args(int argc, char** argv)
 int main(int argc, char** argv)
 {
     atexit(cleanup);
+    atexit(write_summary_to_file);
+
     signal(SIGINT, handle_siginit);
-    if (setlocale(LC_ALL, "") == NULL) { perror("setlocale"); return 1; };
+    if (setlocale(LC_ALL, "") == NULL) {
+        perror("setlocale");
+        return 1;
+    }
 
     parse_args(argc, argv);
     init();
@@ -471,6 +602,7 @@ int main(int argc, char** argv)
         case STRING_INPUT : run_provided_text(argc, argv); break;
         case FILE_INPUT   : run_file_input()             ; break;
         case DEFAULT_INPUT: run_presets()                ; break;
+        default: return 1;
     }
 
     return 0;
