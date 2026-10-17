@@ -386,7 +386,8 @@ void run_file_input(void)
     print_totals();
 }
 
-int ensure_dir_exists(const char* path) {
+int ensure_dir_exists(const char* path)
+{
     if (path == NULL || strlen(path) >= PATH_MAX) return -1;
 
     char dir_path[PATH_MAX];
@@ -396,8 +397,8 @@ int ensure_dir_exists(const char* path) {
     char* last_slash = strrchr(dir_path, '/');
     if (last_slash == NULL) return 0;
     if (last_slash == dir_path) return 0;
-
     *last_slash = '\0';
+
     for (char* p = dir_path + 1; *p != '\0'; ++p) {
         if (*p == '/') {
             *p = '\0';
@@ -410,7 +411,8 @@ int ensure_dir_exists(const char* path) {
     return 0;
 }
 
-void write_summary_to_file(void) {
+void write_summary_to_file(void)
+{
     char* home_usr = home();
     if (home_usr == NULL) {
         fprintf(stderr, "%s: cannot get HOME environment variable for output file path\n", NAME);
