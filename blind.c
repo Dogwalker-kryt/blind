@@ -188,7 +188,7 @@ void help(void)
         "  blind \"line to practice on\"\n"
         "  blind --file <path-to-file> -l 10\n"
         "\n"
-        "Default stats file: $HOME/" DEFAULT_OUTPUT_PATH "\n"
+        "Default stats file: $HOME" DEFAULT_OUTPUT_PATH "\n"
         "\n"
         "Bugs can be reported on GitHub:\n"
         "https://github.com/shalom2552/blind.git\n"
