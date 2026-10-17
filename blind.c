@@ -198,9 +198,8 @@ void help(void)
 void print_result(int wpm, double accuracy, int errors)
 {
     display(DIM"WPM:      "RST"%d\n"RST, wpm);
-    if (blocking_mode) {
-        display(DIM"Errors:   "RST"%s%d\n"RST, errors == 0 ? GREEN : RED, errors);
-    } else {
+    display(DIM"Errors:   "RST"%s%d\n"RST, errors == 0 ? GREEN : RED, errors);
+    if (!blocking_mode) {
         display(DIM"Accuracy: "RST"%s%.2f%%\n"RST, accuracy > 75 ? GREEN : RED, accuracy);
     }
 }
