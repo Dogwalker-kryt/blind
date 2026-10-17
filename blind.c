@@ -636,12 +636,3 @@ int main(int argc, char** argv)
 //          caculate mid line scrors (WPM is the issue, how to update mid line?)
 //          or document that mid line enter not save stats.
 //
-//      NOTE: 50, medium
-//          output stats as a json or csv format, so i can track my progress:
-//              {#lines, WPM, [accuracy], [errors]}
-//          either to the terminal or appending to a predefined file
-//          (or to a provided one with flag? i dont want to preovide a flag every
-//              time, just to track my progress).
-//          this tool is not about parsing this output or listing agragations,
-//          this is a blind typing, so just outputing it is sufficient.
-//
