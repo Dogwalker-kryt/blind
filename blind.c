@@ -1,5 +1,3 @@
-#define _POSIX_C_SOURCE 200809L
-
 /*
  * Blind - A simple program to practice touch-typing in the terminal.
  *
@@ -18,6 +16,7 @@
  *   -b                   block on wrong typing
  *   -f FILE              practice on FILE lines
  *   -l N                 file line number to start on
+ *   -o FILE              specifiy FILE to store stats
  *
  *   --help               display help message
  *   --block              block on wrong typing
@@ -27,6 +26,7 @@
  *   --show-actual        show the actual typed letter
  *   --allow-back         allow backspace for correction
  *   --alt-screen         run the program in alt-screen
+ *   --output=FILE        specifiy FILE to store stats
  *
  * Arguments:
  *   STRING               one line of text. quoted or unquoted.
@@ -41,10 +41,12 @@
  * author: shalom2552
  * date: 2026-09-24
  */
+#define _POSIX_C_SOURCE 200809L
 #include <assert.h>
 #include <complex.h>
 #include <errno.h>
 #include <getopt.h>
+#include <limits.h>
 #include <locale.h>
 #include <signal.h>
 #include <stddef.h>
@@ -52,20 +54,22 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
-#include <limits.h>
-#include <sys/stat.h>
 #include <wchar.h>
 #include <wctype.h>
 
 const char* NAME;
 #ifndef VERSION
-#define VERSION "0.2.6"
-#endif
-#define MAX_TEXT_LINE_LEN 2048
+#define VERSION "unknown"
+#endif // VERSION
 
+#define MAX_TEXT_LINE_LEN 2048
+#define DEFAULT_OUTPUT_PATH "/.local/share/blind-tt/blind_stats.csv"
+
+#define home()       getenv("HOME")
 #define no_display() getenv("NDISPLAY")
 #define display(...) do { if (!no_display()) printf(""__VA_ARGS__); fflush(stdout); } while (0)
 #define DEBUG(...)   fprintf(stderr, "DEBUG: "__VA_ARGS__)
@@ -90,11 +94,6 @@ enum InputMode {
     FILE_INPUT
 };
 
-enum OutputMode {
-    DEFAULT_OUTPT,
-    CUSTOM_PATH_OUTPUT
-};
-
 int input_mode = DEFAULT_INPUT;
 int blocking_mode          = 0;
 int allow_backspace_mode   = 0;
@@ -105,9 +104,6 @@ int file_start_line        = 1;
 
 char* input_file_path   = NULL;
 char* input_string_line = NULL;
-
-#define DEFAULT_OUTPUT_PATH "/.local/share/blind-tt/blind_stats.csv"
-int output_mode = DEFAULT_OUTPT;
 char* output_file_path = NULL;
 
 int term_initialized = 0;
@@ -141,7 +137,7 @@ static char* Presets[] = {
 
 void version(void)
 {
-    fprintf(stderr, "%s: %s\n", NAME, VERSION);
+    fprintf(stderr, "%s %s\n", NAME, VERSION);
 }
 
 void usage(void)
@@ -170,18 +166,17 @@ void help(void)
         "  -b                   block on wrong typing\n"
         "  -f FILE              practice on FILE lines\n"
         "  -l N                 file line number to start on\n"
-        "  -o[FILE]             specifiy FILE to store stats (default: $HOME" DEFAULT_OUTPUT_PATH ")\n"
+        "  -o FILE              specifiy FILE to store stats\n"
         "\n"
         "  --help               display help message\n"
-        "  --block              block on wrong typing\n"    
+        "  --block              block on wrong typing\n"
         "  --version            show version number\n"
         "  --file=FILE          practice on FILE lines\n"
         "  --start-line=N       file line number to start on\n"
         "  --show-actual        show the actual typed letter\n"
         "  --allow-back         allow backspace for correction\n"
         "  --alt-screen         run the program in alt-screen\n"
-        "  --output[=FILE]      specifiy FILE to store stats (default: $HOME" DEFAULT_OUTPUT_PATH  ")\n"
-        "                       Path format is /path/fil_name.csv\n"
+        "  --output=FILE        specifiy FILE to store stats\n"
         "\n"
         "Arguments:\n"
         "  STRING               one line of text. quoted or unquoted.\n"
@@ -189,11 +184,11 @@ void help(void)
         "\n"
         "Example:\n"
         "  blind -b\n"
-        "  blind -o\n"
-        "  blind -ostats.csv \"line to practice on\"\n"
         "  blind --output=stats.csv \"line to practice on\"\n"
         "  blind \"line to practice on\"\n"
         "  blind --file <path-to-file> -l 10\n"
+        "\n"
+        "Default stats file: $HOME/" DEFAULT_OUTPUT_PATH "\n"
         "\n"
         "Bugs can be reported on GitHub:\n"
         "https://github.com/shalom2552/blind.git\n"
@@ -392,113 +387,67 @@ void run_file_input(void)
 }
 
 int ensure_dir_exists(const char *path) {
-    char temp[PATH_MAX];
-    char* p = NULL;
+    char dir_path[PATH_MAX];
+    strncpy(dir_path, path, PATH_MAX);
+    char* last_slash = strrchr(dir_path, '/');
+    if (last_slash != NULL) *last_slash = '\0';
+    if (strlen(dir_path) >= PATH_MAX) return -1;
 
-    if (strlen(path) >= PATH_MAX) {
+    if (mkdir(dir_path, 0755) != 0 && errno != EEXIST) {
         return -1;
     }
-
-    strncpy(temp, path, PATH_MAX);
-    
-    for (p = temp + 1; *p; p++) {
-        if (*p == '/') {
-            *p = '\0';
-            // 0755: owner rwx, group rx, others rx
-            if (mkdir(temp, 0755) != 0 && errno != EEXIST) {
-                return -1;
-            }
-            *p = '/';
-        }
-    }
-
-    if (mkdir(temp, 0755) != 0 && errno != EEXIST) {
-        return -1;
-    }
-
     return 0;
 }
 
-FILE* open_for_append(const char* full_path) {
-    if (full_path == NULL || strlen(full_path) >= PATH_MAX) {
-        return NULL;
-    }
-
-    char path_copy[PATH_MAX];
-    strncpy(path_copy, full_path, PATH_MAX);
-
-    char* last_slash = strrchr(path_copy, '/');
-    if (last_slash != NULL) {
-        *last_slash = '\0'; 
-
-        if (ensure_dir_exists(path_copy) != 0) {
-            perror("HR Error: Failed to create directory tree");
-            return NULL;
-        }
-    }
-
-    return fopen(full_path, "a");
-}
-
-
-void gen_output_file_path(char* custom_output_path) {
-    char* home_usr = getenv("HOME");
+void write_summary_to_file(void) {
+    char* home_usr = home();
     if (home_usr == NULL) {
         fprintf(stderr, "%s: cannot get HOME environment variable for output file path\n", NAME);
-        exit(1);
+        return;
+    }
+    if (!output_file_path) {
+        output_file_path = home();
+        strcat(output_file_path, DEFAULT_OUTPUT_PATH);
+    }
+    if (ensure_dir_exists(output_file_path) != 0) {
+        perror("mkdir");
+        return;
     }
 
-    static char buff[PATH_MAX];
-
-    strncpy(buff, home_usr, sizeof(buff));
-    buff[sizeof(buff) - 1] = '\0';
-
-    char* temp_file_path = DEFAULT_OUTPUT_PATH;
-    if (output_mode == CUSTOM_PATH_OUTPUT) temp_file_path = custom_output_path;
-
-    strcat(buff, temp_file_path);
-
-    output_file_path = buff;
-}
-
-void write_summary_to_file(void) {
-    gen_output_file_path(output_file_path);
-
-    FILE* output_file = open_for_append(output_file_path);
+    FILE* output_file = fopen(output_file_path, "a");
+    if (!output_file) {
+        perror("fopen");
+        return;
+    }
 
     long file_size = ftell(output_file);
     if (file_size < 0) {
         fprintf(stderr, "%s: cannot get output file size for '%s': %s\n",
-            NAME, output_file_path, strerror(errno)
-        );
+            NAME, output_file_path, strerror(errno));
+        fclose(output_file);
+        return;
+    }
+
+    if (file_size == 0 &&
+        fprintf(output_file, "timestamp,mode,lines,lines_skipped,total_letters,correct_letters,errors,wpm,accuracy\n") < 0) {
+        fprintf(stderr, "%s: cannot write CSV header to '%s': %s\n",
+                NAME, output_file_path, strerror(errno));
         fclose(output_file);
         return;
     }
 
     const char* mode;
     switch (input_mode) {
-        case STRING_INPUT: mode = "text"; break;
-        case FILE_INPUT:   mode = "file"; break;
+        case STRING_INPUT:  mode = "text";    break;
+        case FILE_INPUT:    mode = "file";    break;
         case DEFAULT_INPUT: mode = "presets"; break;
-        default:           mode = "unknown"; break;
+        default:            mode = "unknown"; break;
     }
 
-    int csv_errors = blocking_mode ? score.typed_errors : -1;
-    double csv_accuracy = blocking_mode ? -1.0 : score.accuracy;
-
-    if (file_size == 0 &&
-        fprintf(output_file, "timestamp,mode,lines,lines_skipped,total_letters,wpm,errors,accuracy,correct_letters\n") < 0) {
-        fprintf(stderr, "%s: cannot write CSV header to '%s': %s\n",
-            NAME, output_file_path, strerror(errno)
-        );
-        fclose(output_file);
-        return;
-    }
-
-    int fprintf_res = fprintf(output_file, "%lld,%s,%d,%d,%d,%d,%d,%.2f,%d\n",
+    int fprintf_res = fprintf(output_file, "%lld,%s,%d,%d,%d,%d,%d,%d,%.2f\n",
                 (long long)time(NULL), mode, score.lines_count,
-                score.lines_skipped, score.total_letters, score.wpm,
-                csv_errors, csv_accuracy, score.correct_letters
+                score.lines_skipped, score.total_letters, score.correct_letters,
+                score.typed_errors, score.wpm, score.accuracy
     );
 
     if (fprintf_res < 0) {
@@ -564,10 +513,10 @@ void parse_args(int argc, char** argv)
             { "show-actual", no_argument,       0, OPT_SHOW_ACTUAL     },
             { "alt-screen",  no_argument,       0, OPT_ALT_SCREEN      },
             { "output",      optional_argument, 0, 'o'                 },
-            {0}
+            {0},
         };
 
-        c = getopt_long(argc, argv, "hbvo::f:l:", lo, &option_idx);
+        c = getopt_long(argc, argv, "hbvo:f:l:", lo, &option_idx);
         if (c == -1) break;
 
         switch (c) {
@@ -594,20 +543,7 @@ void parse_args(int argc, char** argv)
                 break;
 
             case 'o':
-                output_mode = CUSTOM_PATH_OUTPUT;
-                if (optarg) {
-                    char *fname = optarg;
-
-                    if (*fname == '=') {
-                        ++fname;
-                    }
-
-                    if (*fname == '\0') {
-                        fprintf(stderr, "%s: output filename cannot be empty\n", NAME);
-                        exit(1);
-                    }
-                    output_file_path = fname;
-                }
+                output_file_path = optarg;
                 break;
 
             case OPT_ALLOW_BACKSPACE:
@@ -653,6 +589,7 @@ int main(int argc, char** argv)
         case STRING_INPUT : run_provided_text(argc, argv); break;
         case FILE_INPUT   : run_file_input()             ; break;
         case DEFAULT_INPUT: run_presets()                ; break;
+        default: return 1;
     }
 
     return 0;
