@@ -582,17 +582,16 @@ void parse_args(int argc, char** argv)
 
 int main(int argc, char** argv)
 {
+    parse_args(argc, argv);
     atexit(cleanup);
     atexit(write_summary_to_file);
-
     signal(SIGINT, handle_siginit);
+    init();
+
     if (setlocale(LC_ALL, "") == NULL) {
         perror("setlocale");
         return 1;
     }
-
-    parse_args(argc, argv);
-    init();
 
     // HACK: assuming rest of args are the text input if no input mode provided
     //          this allows to run unquoted text: `blind line to practice`
