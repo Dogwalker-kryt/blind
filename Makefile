@@ -1,5 +1,5 @@
 CC      := gcc
-VERSION := $(shell git describe --abbrev=4 --always --tags)
+VERSION := $(shell git describe --abbrev=0 --always --tags)
 CFLAGS  += -DVERSION=\"$(VERSION)\"
 
 TRG := blind
