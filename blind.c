@@ -66,7 +66,8 @@ const char* NAME;
 #define VERSION "unknown"
 #endif // VERSION
 
-#define MAX_TEXT_LINE_LEN 2048
+#define AWL                 5.0f // Average letters per word
+#define MAX_TEXT_LINE_LEN   2048
 #define DEFAULT_OUTPUT_PATH "/.local/share/blind-tt/blind_stats.csv"
 
 #define home()       getenv("HOME")
@@ -116,6 +117,7 @@ struct {
     int lines_skipped;
     int total_letters;
     int correct_letters;
+    double total_time;
     double accuracy;
 } score = {0};
 
@@ -132,7 +134,7 @@ static char* Presets[] = {
     "The lazy major was fixing Cupid's broken quiver.",
     "My faxed joke won a pager in the cable TV quiz show.",
     "Jacky can now give six big tips from the old quiz.",
-    0
+    0,
 };
 
 void version(void)
@@ -311,14 +313,15 @@ void play(char* line)
     if (total > 1) {
         double time     = (double)(end.tv_sec - start.tv_sec) + (double)(end.tv_nsec - start.tv_nsec) / 1000000000.0;
         double accuracy = (double)correct / total * 100;
-        int wpm         = ((double)total / 5.0) / (time / 60.0);
+        int wpm         = ((double)correct / AWL) / (time / 60.0f);
 
         score.lines_count     += 1;
         score.total_letters   += total;
         score.correct_letters += correct;
         score.typed_errors    += errors;
+        score.total_time      += time;
         score.accuracy        =  (double)score.correct_letters / score.total_letters * 100;
-        score.wpm             =  (score.wpm * score.lines_count + wpm) / (score.lines_count + 1);
+        score.wpm             =  ((double)score.correct_letters / AWL) / (score.total_time / 60.0);
 
         if (!hide_line_score) {
             display("\n\n");
