@@ -271,8 +271,10 @@ void play(char* line)
         if (!total) clock_gettime(CLOCK_MONOTONIC, &start);
 
         if (c == L'\n') { // skip line on enter
-            score.lines_skipped += 1;
-            total = 0;
+            if ((size_t)idx != wcslen(s) - 1) {
+                score.lines_skipped += 1;
+                total = 0;
+            }
             break;
 
         } else if (c == 27) { // skip escape keys
