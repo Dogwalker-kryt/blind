@@ -490,7 +490,7 @@ void init(void)
         struct termios raw = term;
         raw.c_lflag &= ~(ICANON | ECHO);
         tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
-        if (run_in_alt_screen) display("\033[?1049h");
+        if (run_in_alt_screen) display("\033[?1049h\033[0H");
     } else {
         DEBUG("running in NDISPLAY mode\n");
     }
