@@ -75,6 +75,7 @@ const char* NAME;
 #define display(...) do { if (!no_display()) printf(""__VA_ARGS__); fflush(stdout); } while (0)
 #define DEBUG(...)   fprintf(stderr, "DEBUG: "__VA_ARGS__)
 
+#define REDBG "\033[41m"
 #define RED   "\033[31m"
 #define GREEN "\033[32m"
 #define UNDER "\033[4m"
@@ -92,7 +93,7 @@ enum Options {
 enum InputMode {
     DEFAULT_INPUT,
     STRING_INPUT,
-    FILE_INPUT
+    FILE_INPUT,
 };
 
 int input_mode = DEFAULT_INPUT;
@@ -299,10 +300,9 @@ void play(char* line)
             display(GREEN"%lc"RST, c);
         } else {
             ++errors;
-            if (blocking_mode) {
-                continue;
-            }
-            display(RED"%lc"RST, show_actual_typed_mode ? c : s[idx]);
+            if (blocking_mode) continue;
+            char* color = (iswspace(s[idx]) || iswspace(c)) ? REDBG : RED;
+            display("%s%lc"RST, color, show_actual_typed_mode ? c : s[idx]);
         }
 
         fflush(stdout);
@@ -612,23 +612,7 @@ int main(int argc, char** argv)
 }
 
 //
-// FIX: BUGS
-//
-//      BUG: 10, research
-//          does ioctl() (to get the cols size for wraping line), is POSIX support?
-//          google search says to include <sys/ioctl.h>, but manpage says <stropts.h>
-//          which dosen't compile.
-//
 // NOTE: FEATURES
-//
-//      NOTE: 30, easy
-//          on wrong typed space ' ' add an indication (maybe '_' or red bg ' ')
-//          if using '_':
-//              con: it can clash with real '_' character, lines may already have it.
-//              pro: no need to use bg color.
-//          if using bg color: neesd to add red bg color
-//          in both cases needs to print wehter its actual-typed mode or not,
-//              we dont want to change the original string `s`.
 //
 //      NOTE: 40, small
 //          hide cursor and blink current word.
