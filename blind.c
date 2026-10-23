@@ -461,11 +461,21 @@ void write_summary_to_file(void)
         default:            mode = "unknown"; break;
     }
 
+    const char *cur = setlocale(LC_ALL, NULL);
+    char *saved_cur = cur ? NULL : strdup(cur);
+
+    setlocale(LC_NUMERIC, "C");
+
     int fprintf_res = fprintf(output_file, "%lld,%s,%d,%d,%d,%d,%d,%d,%.2f\n",
                 (long long)time(NULL), mode, score.lines_count,
                 score.lines_skipped, score.total_letters, score.correct_letters,
                 score.typed_errors, score.wpm, score.accuracy
     );
+
+    if (saved_cur) {
+        setlocale(LC_ALL, saved_cur);
+        free(saved_cur);
+    }
 
     if (fprintf_res < 0) {
         fprintf(stderr, "%s: cannot write session statistics to '%s': %s\n",
