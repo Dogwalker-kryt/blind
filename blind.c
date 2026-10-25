@@ -461,10 +461,29 @@ void write_summary_to_file(void)
         default:            mode = "unknown"; break;
     }
 
-    const char *cur = setlocale(LC_ALL, NULL);
-    char *saved_cur = cur ? NULL : strdup(cur);
+    const char* cur_locale = setlocale(LC_ALL, NULL);
+    if (cur_locale == NULL) {
+        fprintf(stderr, "%s: cannot query current locale: %s\n", NAME, strerror(errno));
+        fclose(output_file);
+        return;
+    }
 
-    setlocale(LC_NUMERIC, "C");
+    char* saved_cur_locale = NULL;
+    if (cur_locale) {
+        saved_cur_locale = strdup(cur_locale);
+        if (saved_cur_locale == NULL) {
+            fprintf(stderr, "%s: cannot save current locale: %s\n", NAME, strerror(errno));
+            fclose(output_file);
+            return;
+        }
+    }
+    
+    if (setlocale(LC_NUMERIC, "C") == NULL) {
+        fprintf(stderr, "%s: cannot set numeric locale to C: %s\n", NAME, strerror(errno));
+        free(saved_cur_locale);
+        fclose(output_file);
+        return;
+    }
 
     int fprintf_res = fprintf(output_file, "%lld,%s,%d,%d,%d,%d,%d,%d,%.2f\n",
                 (long long)time(NULL), mode, score.lines_count,
@@ -472,9 +491,9 @@ void write_summary_to_file(void)
                 score.typed_errors, score.wpm, score.accuracy
     );
 
-    if (saved_cur) {
-        setlocale(LC_ALL, saved_cur);
-        free(saved_cur);
+    if (saved_cur_locale != NULL) {
+        setlocale(LC_ALL, saved_cur_locale);
+        free(saved_cur_locale);
     }
 
     if (fprintf_res < 0) {
