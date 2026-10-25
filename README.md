@@ -33,7 +33,7 @@ Options:
   -b                   block on wrong typing
   -f FILE              practice on FILE lines
   -l NUMBER            file line number to start on
-  -o=FILE              specifiy FILE to store stats
+  -o FILE              specifiy FILE to store stats
  
   --help               display help message
   --block              block on wrong typing
